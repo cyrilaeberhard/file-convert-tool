@@ -1,8 +1,17 @@
 import Foundation
 
 enum Backend {
+    #if arch(arm64)
+    private static let bundledDir = "python-arm64"
+    #else
+    private static let bundledDir = "python-x86_64"
+    #endif
+
+    /// Eingebettetes Python zuerst, damit weder Homebrew noch die Developer Tools nötig sind.
     static let python: String = {
-        ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"]
+        let bundled = Bundle.main.resourcePath.map { "\($0)/\(bundledDir)/bin/python3" }
+        return ([bundled].compactMap { $0 }
+            + ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"])
             .first { FileManager.default.isExecutableFile(atPath: $0) } ?? "/usr/bin/python3"
     }()
 
@@ -16,6 +25,7 @@ enum Backend {
         task.executableURL = URL(fileURLWithPath: python)
         task.arguments = [script] + args
         var env = ProcessInfo.processInfo.environment
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin")
         task.environment = env
         let pipe = Pipe()

@@ -14,7 +14,7 @@ The app is not notarized. On first launch: right-click the app, choose **Open**,
 xattr -dr com.apple.quarantine /Applications/FileConvert.app
 ```
 
-Requires macOS 13+ and `python3` (Homebrew recommended). Some conversions use optional tools (e.g. `ffmpeg`, `pandoc`, `libreoffice`).
+Requires macOS 14+. Python is bundled, nothing else to install. Some conversions use optional tools (e.g. `ffmpeg`, `pandoc`, `libreoffice`).
 
 ## Build from source
 

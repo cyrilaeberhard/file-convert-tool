@@ -115,6 +115,8 @@ final class WheelController {
         return objects ?? []
     }
 
+    private var pasteboardCountAtDown = -1
+
     func start() {
         // Rechte Maustaste mitnehmen: Ctrl + Klick zählt für macOS als Rechtsklick.
         let drag = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDragged, .rightMouseDragged]) { [weak self] _ in
@@ -123,7 +125,11 @@ final class WheelController {
         let up = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseUp, .rightMouseUp]) { [weak self] _ in
             self?.mouseUp()
         }
-        monitors = [drag, up].compactMap { $0 }
+        // Stand des Drag-Pasteboards beim Mausdruck merken: nur ein echter Datei-Drag ändert ihn.
+        let down = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            self?.pasteboardCountAtDown = NSPasteboard(name: .drag).changeCount
+        }
+        monitors = [drag, up, down].compactMap { $0 }
     }
 
     /// Nur zur Sichtprüfung: Wheel ohne Drag anzeigen.
@@ -138,7 +144,10 @@ final class WheelController {
     /// Während eines Datei-Drags regelmäßig prüfen, welche Wheel-Taste gedrückt ist.
     private func dragTick() {
         guard timer == nil, !clickMode else { return }
-        urls = WheelController.fileURLs(from: NSPasteboard(name: .drag))
+        // Cmd-Klick und Rahmenauswahl lassen alte Dateien im Drag-Pasteboard stehen: ignorieren.
+        let board = NSPasteboard(name: .drag)
+        guard board.changeCount != pasteboardCountAtDown else { return }
+        urls = WheelController.fileURLs(from: board)
         guard !urls.isEmpty else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 0.02, repeats: true) { [weak self] _ in self?.pollModifiers() }
     }

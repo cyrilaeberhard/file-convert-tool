@@ -36,6 +36,12 @@ for pair in "arm64:aarch64" "x86_64:x86_64"; do
         "$dest/include" "$dest/share" "$dest"/lib/libtcl* "$dest"/lib/libtk* "$dest"/lib/tcl* "$dest"/lib/tk* "$dest"/lib/itcl* "$dest"/lib/thread*
     find "$dest" -name __pycache__ -prune -exec rm -rf {} +
 done
+# Ghostscript (nur arm64, aus Homebrew); ohne Homebrew-gs bleibt es draussen
+if [ -x /opt/homebrew/bin/gs ]; then
+    python3 Helper/bundle_gs.py "$APP/Contents/Resources/gs"
+else
+    echo "WARNUNG: Homebrew-gs fehlt, PDF-Funktionen im Bundle nicht enthalten" >&2
+fi
 cp Assets/AppIcon.icns "$APP/Contents/Resources/"
 for f in *.py; do case "$f" in test_*|check_matrix.py) ;; *) cp "$f" "$APP/Contents/Resources/" ;; esac; done
 cat > "$APP/Contents/Info.plist" <<'EOF'

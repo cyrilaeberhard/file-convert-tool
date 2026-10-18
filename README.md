@@ -14,7 +14,7 @@ The app is not notarized. On first launch: right-click the app, choose **Open**,
 xattr -dr com.apple.quarantine /Applications/FileConvert.app
 ```
 
-Requires macOS 14+. Python is bundled, nothing else to install. Some conversions use optional tools (e.g. `ffmpeg`, `pandoc`, `libreoffice`).
+Requires macOS 14+. Python and Ghostscript (PDF tools) are bundled on Apple Silicon; on Intel Macs run `brew install ghostscript` for PDF features. Some conversions use optional tools (e.g. `ffmpeg`, `pandoc`, `libreoffice`).
 
 ## Build from source
 

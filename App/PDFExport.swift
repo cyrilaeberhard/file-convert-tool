@@ -80,7 +80,8 @@ func runPDFEditSelfTest() -> Bool {
     let ps = "/Helvetica findfont 24 scalefont setfont 100 700 moveto (SECRET123) show showpage " +
              "/Helvetica findfont 24 scalefont setfont 100 700 moveto (KEEPME) show showpage"
     let gs = Process()
-    gs.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/gs")
+    gs.executableURL = URL(fileURLWithPath: (Backend.bundledGS.map { "\($0.bin)/gs" }) ?? "/opt/homebrew/bin/gs")
+    if let lib = Backend.bundledGS?.lib { gs.environment = ["GS_LIB": lib] }
     gs.arguments = ["-q", "-dNOPAUSE", "-dBATCH", "-sDEVICE=pdfwrite", "-sOutputFile=\(source.path)", "-c", ps]
     do { try gs.run(); gs.waitUntilExit() } catch { print("FAIL pdfedit: gs missing"); return false }
     guard let doc = PDFDocument(url: source), doc.pageCount == 2 else { print("FAIL pdfedit: sample"); return false }

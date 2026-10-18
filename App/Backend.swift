@@ -15,6 +15,19 @@ enum Backend {
             .first { FileManager.default.isExecutableFile(atPath: $0) } ?? "/usr/bin/python3"
     }()
 
+    /// Eingebettetes Ghostscript (nur Apple Silicon): Pfad und Umgebung, sonst nil.
+    static let bundledGS: (bin: String, lib: String)? = {
+        #if arch(arm64)
+        guard let res = Bundle.main.resourcePath else { return nil }
+        let bin = "\(res)/gs/bin"
+        guard FileManager.default.isExecutableFile(atPath: "\(bin)/gs") else { return nil }
+        let share = "\(res)/gs/share/ghostscript"
+        return (bin, ["Resource/Init", "Resource", "lib", "fonts"].map { "\(share)/\($0)" }.joined(separator: ":"))
+        #else
+        return nil
+        #endif
+    }()
+
     static var script: String {
         Bundle.main.path(forResource: "fileconvert", ofType: "py") ?? ""
     }
@@ -27,6 +40,10 @@ enum Backend {
         var env = ProcessInfo.processInfo.environment
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin")
+        if let gs = bundledGS {
+            env["PATH"] = gs.bin + ":" + (env["PATH"] ?? "")
+            env["GS_LIB"] = gs.lib
+        }
         task.environment = env
         let pipe = Pipe()
         task.standardOutput = pipe

@@ -15,18 +15,24 @@ enum Backend {
             .first { FileManager.default.isExecutableFile(atPath: $0) } ?? "/usr/bin/python3"
     }()
 
-    /// Eingebettetes Ghostscript (nur Apple Silicon): Pfad und Umgebung, sonst nil.
-    static let bundledGS: (bin: String, lib: String)? = {
+    /// Eingebettete Tools (nur Apple Silicon): Ordner für PATH und GS_LIB, sonst nil.
+    static let bundledTools: (dirs: [String], gsLib: String)? = {
         #if arch(arm64)
         guard let res = Bundle.main.resourcePath else { return nil }
-        let bin = "\(res)/gs/bin"
-        guard FileManager.default.isExecutableFile(atPath: "\(bin)/gs") else { return nil }
-        let share = "\(res)/gs/share/ghostscript"
-        return (bin, ["Resource/Init", "Resource", "lib", "fonts"].map { "\(share)/\($0)" }.joined(separator: ":"))
+        let root = "\(res)/tools"
+        guard FileManager.default.isExecutableFile(atPath: "\(root)/bin/gs") else { return nil }
+        let share = "\(root)/share/ghostscript"
+        return (["\(root)/bin", "\(root)/exiftool"],
+                ["Resource/Init", "Resource", "lib", "fonts"].map { "\(share)/\($0)" }.joined(separator: ":"))
         #else
         return nil
         #endif
     }()
+
+    static func tool(_ name: String) -> String? {
+        let dirs = (bundledTools?.dirs ?? []) + ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
+        return dirs.map { "\($0)/\(name)" }.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
 
     static var script: String {
         Bundle.main.path(forResource: "fileconvert", ofType: "py") ?? ""
@@ -40,9 +46,9 @@ enum Backend {
         var env = ProcessInfo.processInfo.environment
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin")
-        if let gs = bundledGS {
-            env["PATH"] = gs.bin + ":" + (env["PATH"] ?? "")
-            env["GS_LIB"] = gs.lib
+        if let tools = bundledTools {
+            env["PATH"] = (tools.dirs + [env["PATH"] ?? ""]).joined(separator: ":")
+            env["GS_LIB"] = tools.gsLib
         }
         task.environment = env
         let pipe = Pipe()

@@ -1,11 +1,12 @@
-"""Kopiert Ghostscript samt Nicht-System-Bibliotheken in <dest> (relocatable). Aufruf: bundle_gs.py <dest>"""
+"""Kopiert Homebrew-Tools samt Nicht-System-Bibliotheken in <dest> (relocatable).
+Aufruf: bundle_tools.py <dest> <tool>...   (gs bringt zusätzlich share/ghostscript mit)"""
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-GS = Path("/opt/homebrew/bin/gs").resolve()
+BREW_BIN = Path("/opt/homebrew/bin")
 SHARE = Path("/opt/homebrew/share/ghostscript")
 SYSTEM = ("/usr/lib", "/System")
 
@@ -24,17 +25,24 @@ def resolve(entry: str, owner: Path) -> Path:
     return Path(entry).resolve()
 
 
-def main(dest: Path) -> None:
+def main(dest: Path, tools: list[str]) -> None:
     bin_dir, lib_dir = dest / "bin", dest / "lib"
     bin_dir.mkdir(parents=True)
     lib_dir.mkdir()
-    gs = bin_dir / "gs"
-    shutil.copy2(GS, gs)
-    todo, copied = [(gs, GS)], {}
+    binaries = {}
+    copied = {}
+    todo = []
+    for name in tools:
+        original = (BREW_BIN / name).resolve()
+        target = bin_dir / name
+        shutil.copy2(original, target)
+        binaries[name] = target
+        todo.append((target, original))
     while todo:
         target, original = todo.pop()
-        prefix = "@executable_path/../lib/" if target == gs else "@loader_path/"
-        if target != gs:
+        is_bin = target.parent == bin_dir
+        prefix = "@executable_path/../lib/" if is_bin else "@loader_path/"
+        if not is_bin:
             subprocess.run(["install_name_tool", "-id", f"@loader_path/{target.name}", str(target)], check=True, capture_output=True)
         for entry in entries(original):
             lib = resolve(entry, original)
@@ -45,10 +53,11 @@ def main(dest: Path) -> None:
                 todo.append((copied[lib.name], lib))
             subprocess.run(["install_name_tool", "-change", entry, prefix + lib.name, str(target)], check=True, capture_output=True)
     # install_name_tool macht Signaturen ungültig; arm64 beendet unsignierte Binaries sofort
-    for f in [gs, *copied.values()]:
+    for f in [*binaries.values(), *copied.values()]:
         subprocess.run(["codesign", "--force", "--sign", "-", str(f)], check=True, capture_output=True)
-    shutil.copytree(SHARE, dest / "share" / "ghostscript")
+    if "gs" in tools:
+        shutil.copytree(SHARE, dest / "share" / "ghostscript")
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]))
+    main(Path(sys.argv[1]), sys.argv[2:])

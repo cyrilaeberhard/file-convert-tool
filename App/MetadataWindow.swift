@@ -14,8 +14,7 @@ enum ExifTool {
     private static let hiddenGroups: Set<String> = ["System", "File", "ExifTool", "Composite"]
 
     static var path: String? {
-        ["/opt/homebrew/bin/exiftool", "/usr/local/bin/exiftool", "/usr/bin/exiftool"]
-            .first { FileManager.default.isExecutableFile(atPath: $0) }
+        Backend.tool("exiftool")
     }
 
     private static func run(_ args: [String]) -> (Int32, Data) {

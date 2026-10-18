@@ -36,12 +36,18 @@ for pair in "arm64:aarch64" "x86_64:x86_64"; do
         "$dest/include" "$dest/share" "$dest"/lib/libtcl* "$dest"/lib/libtk* "$dest"/lib/tcl* "$dest"/lib/tk* "$dest"/lib/itcl* "$dest"/lib/thread*
     find "$dest" -name __pycache__ -prune -exec rm -rf {} +
 done
-# Ghostscript (nur arm64, aus Homebrew); ohne Homebrew-gs bleibt es draussen
-if [ -x /opt/homebrew/bin/gs ]; then
-    python3 Helper/bundle_gs.py "$APP/Contents/Resources/gs"
-else
-    echo "WARNUNG: Homebrew-gs fehlt, PDF-Funktionen im Bundle nicht enthalten" >&2
-fi
+# Eingebettete Tools (nur arm64, aus Homebrew): gs, ffmpeg, ffprobe, cwebp, exiftool
+TOOLS="$APP/Contents/Resources/tools"
+for t in gs ffmpeg ffprobe cwebp exiftool; do
+    [ -x "/opt/homebrew/bin/$t" ] || { echo "FEHLER: brew install $t (wird eingebettet)" >&2; exit 1; }
+done
+python3 Helper/bundle_tools.py "$TOOLS" gs ffmpeg ffprobe cwebp
+EXIF=$(dirname "$(readlink -f /opt/homebrew/bin/exiftool)")/..
+mkdir -p "$TOOLS/exiftool/lib"
+sed '1s|.*|#!/usr/bin/perl|' "$EXIF/bin/exiftool" > "$TOOLS/exiftool/exiftool"
+chmod 755 "$TOOLS/exiftool/exiftool"
+cp -R "$EXIF/libexec/lib/perl5/Image" "$TOOLS/exiftool/lib/"
+rm -rf "$TOOLS/exiftool/lib/Image/ExifTool/Lang"
 cp Assets/AppIcon.icns "$APP/Contents/Resources/"
 for f in *.py; do case "$f" in test_*|check_matrix.py) ;; *) cp "$f" "$APP/Contents/Resources/" ;; esac; done
 cat > "$APP/Contents/Info.plist" <<'EOF'

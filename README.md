@@ -14,7 +14,9 @@ The app is not notarized. On first launch: right-click the app, choose **Open**,
 xattr -dr com.apple.quarantine /Applications/FileConvert.app
 ```
 
-Requires macOS 14+. Python and Ghostscript (PDF tools) are bundled on Apple Silicon; on Intel Macs run `brew install ghostscript` for PDF features. Some conversions use optional tools (e.g. `ffmpeg`, `pandoc`, `libreoffice`).
+Requires macOS 14+ on Apple Silicon. Everything is bundled (Python, Ghostscript, ffmpeg, cwebp, exiftool): nothing else to install. Intel Macs are not supported by the bundled tools.
+
+Bundled third-party tools keep their own licenses: Ghostscript (AGPL, https://ghostscript.com), ffmpeg (GPL, https://ffmpeg.org), libwebp/cwebp (BSD), ExifTool (Perl Artistic/GPL, https://exiftool.org), Python (PSF).
 
 ## Build from source
 
@@ -22,7 +24,7 @@ Requires macOS 14+. Python and Ghostscript (PDF tools) are bundled on Apple Sili
 sh build.sh
 ```
 
-Needs Xcode command line tools (`swiftc`). Output: `build/FileConvert.app`.
+Needs Xcode command line tools (`swiftc`) and `brew install ghostscript ffmpeg webp exiftool` (they get bundled). Output: `build/FileConvert.app`.
 
 ## Tests
 

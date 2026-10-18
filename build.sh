@@ -7,6 +7,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 swiftc -O App/*.swift -o "$APP/Contents/MacOS/FileConvert"
 swiftc -O Helper/html2pdf.swift -o "$APP/Contents/Resources/html2pdf"
+cp Assets/AppIcon.icns "$APP/Contents/Resources/"
 for f in *.py; do case "$f" in test_*|check_matrix.py) ;; *) cp "$f" "$APP/Contents/Resources/" ;; esac; done
 cat > "$APP/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -14,6 +15,7 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>FileConvert</string>
 <key>CFBundleIdentifier</key><string>local.fileconvert</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleName</key><string>FileConvert</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>LSUIElement</key><true/>

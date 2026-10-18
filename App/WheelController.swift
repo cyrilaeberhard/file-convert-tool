@@ -144,7 +144,7 @@ final class WheelController {
     }
 
     private func pollModifiers() {
-        let flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = NSEvent.modifierFlags.intersection(DragModifier.mask)
         let match = WheelKind.allCases.first { flags == $0.modifier.flag }
             ?? WheelKind.allCases.first { flags.contains($0.modifier.flag) }
         guard let kind = match else { return }

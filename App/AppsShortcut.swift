@@ -120,12 +120,18 @@ final class DoubleTapDetector {
         action = nil
     }
 
+    /// Ist eine normale Taste gedrückt? Die Modifier-Tasten selbst (Tastencodes 54-63) zählen nicht,
+    /// sonst wäre bei gedrücktem ⌘ immer "eine Taste gedrückt".
+    static func anyNonModifierKey(_ isDown: (CGKeyCode) -> Bool) -> Bool {
+        (0..<128).contains { !(54...63).contains($0) && isDown(CGKeyCode($0)) }
+    }
+
     private static func anyKeyDown() -> Bool {
-        (0..<128).contains { CGEventSource.keyState(.combinedSessionState, key: CGKeyCode($0)) }
+        anyNonModifierKey { CGEventSource.keyState(.combinedSessionState, key: $0) }
     }
 
     private func poll() {
-        let flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = NSEvent.modifierFlags.intersection(DragModifier.mask)
         let down = flags == target
         let invalid = (!flags.isEmpty && !down) || NSEvent.pressedMouseButtons != 0 || (down && Self.anyKeyDown())
         if machine.feed(down: down, invalid: invalid, at: ProcessInfo.processInfo.systemUptime) { action?() }
@@ -164,14 +170,14 @@ struct ShortcutRecorder: View {
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
             if event.type == .keyDown {
                 if event.keyCode == UInt16(kVK_Escape) { stop(); return nil }
-                let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                let flags = event.modifierFlags.intersection(DragModifier.mask)
                 let carbon = AppsShortcut.carbon(from: flags)
                 let functionKey = (kVK_F1...kVK_F20).contains(Int(event.keyCode))
                 guard carbon != 0 || functionKey else { return nil }
                 set(AppsShortcut(kind: .combo, keyCode: Int(event.keyCode), carbonModifiers: carbon, keyLabel: AppsShortcut.label(for: event)))
                 return nil
             }
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let flags = event.modifierFlags.intersection(DragModifier.mask)
             for index in machines.indices {
                 let modifier = machines[index].0
                 let hit = machines[index].1.feed(down: flags == modifier.flag, invalid: !flags.isEmpty && flags != modifier.flag, at: event.timestamp)
@@ -212,6 +218,9 @@ func runShortcutSelfTest() -> Bool {
     var fires = 0
     for (down, t) in [(true, 0.0), (false, 0.1), (true, 0.2), (false, 0.3), (true, 0.4), (false, 0.5)] where m.feed(down: down, invalid: false, at: t) { fires += 1 }
     check(fires == 1, "three taps fire once (got \(fires))", &failures)
+    // Modifier-Tastencodes dürfen nicht als "andere Taste" gelten (war der Fehler bei Doppeltipp auf ⌘)
+    check(!DoubleTapDetector.anyNonModifierKey { $0 == 55 || $0 == 54 || $0 == 58 || $0 == 59 || $0 == 56 }, "modifier keycodes are ignored", &failures)
+    check(DoubleTapDetector.anyNonModifierKey { $0 == 0 }, "letter key counts", &failures)
     // Speichern und Beschriften
     check(AppsShortcut.standard.label == "⌃⌥Space", "standard label \(AppsShortcut.standard.label)", &failures)
     let encoded = try? JSONEncoder().encode(AppsShortcut(kind: .doubleTap, modifier: DragModifier.command.rawValue))

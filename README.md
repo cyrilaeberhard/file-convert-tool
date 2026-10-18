@@ -1,3 +1,5 @@
+<p align="center"><img src="Assets/icon_1024.png" width="160" alt="FileConvert"></p>
+
 # FileConvert
 
 macOS menu-bar app to convert, compress and edit files (images, PDFs, documents, audio/video, archives, spreadsheets, markup).

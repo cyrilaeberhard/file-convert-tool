@@ -6,6 +6,9 @@ let accent = Color(red: 236 / 255, green: 99 / 255, blue: 48 / 255)
 
 enum DragModifier: String, CaseIterable, Identifiable {
     case shift, command, control, option
+
+    /// Nur diese Tasten zählen; Feststell- und Fn-Taste sollen die Erkennung nie stören.
+    static let mask: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
     var id: String { rawValue }
 
     var label: String {

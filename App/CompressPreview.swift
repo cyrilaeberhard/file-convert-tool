@@ -25,6 +25,8 @@ final class CompressModel: ObservableObject {
     @Published var busy = false
     @Published var error: String?
     @Published var pdfLevel = "medium"
+    @Published var pdfByPercent = true
+    @Published var reducePercent = 50.0
     @Published var pdfResults: [String: (url: URL, size: Int)] = [:]
     @Published var targetMB: Double
     private var generation = 0
@@ -93,7 +95,7 @@ final class CompressModel: ObservableObject {
                 self.busy = false
                 self.pdfResults = found.mapValues { (url: $0.0, size: $0.1) }
                 self.error = found.isEmpty ? failure : nil
-                self.select(level: self.pdfLevel)
+                self.applyPDFChoice()
             }
         }
     }
@@ -102,6 +104,20 @@ final class CompressModel: ObservableObject {
         pdfLevel = level
         resultURL = pdfResults[level]?.url
         resultSize = pdfResults[level]?.size
+    }
+
+    /// Größe, die der gewählte Prozentwert höchstens erlaubt.
+    var pdfTargetBytes: Int { Int(Double(originalSize) * (1 - reducePercent / 100)) }
+
+    /// true, wenn eine Stufe den Zielwert erreicht.
+    var pdfTargetReachable: Bool { pdfResults.values.contains { $0.size <= pdfTargetBytes } }
+
+    /// Prozent-Modus: mildeste Stufe, die das Ziel erreicht, sonst die kleinste.
+    func applyPDFChoice() {
+        guard pdfByPercent else { return select(level: pdfLevel) }
+        let ordered = ["high", "medium", "low"].compactMap { level in pdfResults[level].map { (level, $0.size) } }
+        let pick = ordered.first { $0.1 <= pdfTargetBytes } ?? ordered.min { $0.1 < $1.1 }
+        if let pick { select(level: pick.0) }
     }
 
     /// Ergebnis neben das Original legen (ohne etwas zu überschreiben).
@@ -151,6 +167,10 @@ struct CompressView: View {
     @State private var compressed: NSImage?
 
     var body: some View {
+        if model.kind == .pdf { pdfLayout } else { standardLayout }
+    }
+
+    private var standardLayout: some View {
         VStack(spacing: 0) {
             ZStack {
                 VStack(spacing: 2) {
@@ -193,6 +213,80 @@ struct CompressView: View {
     }
 
     @State private var pending: DispatchWorkItem?
+
+    // MARK: PDF-Layout (Modus + Prozent-Regler)
+
+    private var pdfLayout: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack {
+                Text("Compress").font(.system(size: 20, weight: .semibold))
+                HStack {
+                    Button(action: close) {
+                        Image(systemName: "xmark").font(.system(size: 14, weight: .bold))
+                            .frame(width: 38, height: 38).background(Circle().fill(Color.white.opacity(0.16)))
+                    }.buttonStyle(.plain)
+                    Spacer()
+                }
+            }.padding(14)
+            Divider()
+            VStack(alignment: .leading, spacing: 16) {
+                Text(model.url.lastPathComponent).font(.system(size: 15)).foregroundColor(Color(red: 0.7, green: 0.93, blue: 0.95)).lineLimit(1)
+                Text("Original size: \(bytes(model.originalSize))").font(.system(size: 20, weight: .semibold))
+            }.padding(.horizontal, 22).padding(.vertical, 18)
+            Divider()
+            HStack {
+                Text("Mode").font(.system(size: 16)).foregroundColor(.white.opacity(0.65))
+                Spacer()
+                Picker("", selection: $model.pdfByPercent) {
+                    Text("Percentage").tag(true)
+                    Text("Preset").tag(false)
+                }.labelsHidden().fixedSize()
+            }.padding(.horizontal, 22).padding(.vertical, 14)
+            Divider()
+            Group {
+                if model.pdfByPercent { percentControls } else { pdfBody }
+            }.padding(.horizontal, 22).padding(.vertical, 16)
+            if let error = model.error { Text(error).font(.caption).foregroundColor(.red).lineLimit(2).padding(.horizontal, 22) }
+            Spacer(minLength: 0)
+            Divider()
+            HStack {
+                if model.busy { ProgressView().controlSize(.small) }
+                Spacer()
+                Button(action: save) {
+                    Text("Compress").font(.system(size: 16, weight: .semibold)).foregroundColor(.white)
+                        .padding(.horizontal, 22).padding(.vertical, 9)
+                        .background(RoundedRectangle(cornerRadius: 9).fill(accent))
+                }
+                .buttonStyle(.plain)
+                .disabled(model.resultURL == nil || model.busy)
+                .opacity(model.resultURL == nil || model.busy ? 0.4 : 1)
+            }.padding(14)
+        }
+        .frame(width: 560, height: 520)
+        .foregroundColor(.white)
+        .focusEffectDisabled()
+        .liquidGlass(in: RoundedRectangle(cornerRadius: 36))
+        .onAppear { model.refresh() }
+        .onChange(of: model.pdfByPercent) { _, _ in model.applyPDFChoice() }
+        .onChange(of: model.reducePercent) { _, _ in model.applyPDFChoice() }
+    }
+
+    private var percentControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 14) {
+                Text("Reduce by").font(.system(size: 17, weight: .medium))
+                Slider(value: $model.reducePercent, in: 5...95, step: 1).tint(accent)
+                Text("\(Int(model.reducePercent))%").font(.system(size: 17, weight: .medium)).frame(width: 48, alignment: .trailing)
+            }
+            if model.pdfTargetReachable || model.pdfResults.isEmpty {
+                Text("Output will be at most \(bytes(model.pdfTargetBytes)).")
+                    .font(.system(size: 15)).foregroundColor(.white.opacity(0.6))
+            } else if let size = model.resultSize {
+                Text("Can't reach \(bytes(model.pdfTargetBytes)). Smallest possible: \(bytes(size)).")
+                    .font(.system(size: 15)).foregroundColor(.white.opacity(0.6))
+            }
+        }
+    }
 
     private func debounced() {
         pending?.cancel()
@@ -238,7 +332,7 @@ struct CompressView: View {
     // MARK: PDF
 
     private var pdfBody: some View {
-        HStack(alignment: .top, spacing: 16) {
+        VStack(spacing: 10) {
             VStack(spacing: 10) {
                 ForEach([("low", "Strong", "smallest file"), ("medium", "Balanced", "good for screens"), ("high", "Light", "keeps print quality")], id: \.0) { level, title, hint in
                     let size = model.pdfResults[level]?.size
@@ -264,10 +358,6 @@ struct CompressView: View {
                 tag("Original", bytes(model.originalSize))
                 if let error = model.error { Text(error).font(.caption).foregroundColor(.red) }
             }.frame(maxWidth: .infinity)
-            if let result = model.resultURL, let page = PDFDocument(url: result)?.page(at: 0) {
-                Image(nsImage: page.thumbnail(of: CGSize(width: 240, height: 340), for: .cropBox))
-                    .cornerRadius(8).shadow(radius: 6)
-            } else { Color.clear.frame(width: 240, height: 340) }
         }
     }
 
@@ -330,7 +420,8 @@ enum CompressWindow {
     @discardableResult
     static func show(_ url: URL) -> Bool {
         guard let model = CompressModel(url: url) else { return false }
-        GlassWindow.present(size: NSSize(width: 680, height: 600)) { close in CompressView(model: model, close: close) }
+        let size = model.kind == .pdf ? NSSize(width: 560, height: 520) : NSSize(width: 680, height: 600)
+        GlassWindow.present(size: size) { close in CompressView(model: model, close: close) }
         return true
     }
 }

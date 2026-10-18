@@ -62,6 +62,14 @@ final class PDFEditModel: ObservableObject {
     @Published var selected: PDFAnnotation?
     @Published var status = ""
     private(set) var added: [(page: PDFPage, annotation: PDFAnnotation)] = []
+    private var history: [Action] = []
+    weak var view: EditorPDFView?
+
+    private enum Action {
+        case add(PDFAnnotation)
+        case delete(PDFPage, PDFAnnotation)
+        case move(PDFAnnotation, CGRect)
+    }
 
     init?(url: URL, tool: EditTool) {
         guard let doc = PDFDocument(url: url), doc.pageCount > 0 else { return nil }
@@ -71,9 +79,18 @@ final class PDFEditModel: ObservableObject {
     }
 
     var editCount: Int { added.count }
+    var canUndo: Bool { !history.isEmpty }
 
     func register(_ annotation: PDFAnnotation, on page: PDFPage) {
         added.append((page, annotation))
+        history.append(.add(annotation))
+        objectWillChange.send()
+    }
+
+    /// Verschieben oder Skalieren als rückgängig machbaren Schritt festhalten.
+    func recordChange(of annotation: PDFAnnotation, from old: CGRect) {
+        guard annotation.bounds != old else { return }
+        history.append(.move(annotation, old))
         objectWillChange.send()
     }
 
@@ -85,21 +102,47 @@ final class PDFEditModel: ObservableObject {
         (annotation as? SignatureAnnotation)?.isSelected = true
     }
 
+    /// Löschen (⌫); lässt sich mit Undo zurückholen.
     func remove(_ annotation: PDFAnnotation) {
-        guard let entry = added.first(where: { $0.annotation === annotation }) else { return }
-        entry.page.removeAnnotation(annotation)
-        added.removeAll { $0.annotation === annotation }
-        if selected === annotation { selected = nil }
+        guard let page = detach(annotation) else { return }
+        history.append(.delete(page, annotation))
         objectWillChange.send()
     }
 
-    func undo() { if let last = added.last { remove(last.annotation) } }
+    @discardableResult
+    private func detach(_ annotation: PDFAnnotation) -> PDFPage? {
+        guard let entry = added.first(where: { $0.annotation === annotation }) else { return nil }
+        entry.page.removeAnnotation(annotation)
+        added.removeAll { $0.annotation === annotation }
+        if selected === annotation { select(nil) }
+        view?.refresh(entry.page)
+        return entry.page
+    }
+
+    func undo() {
+        guard let last = history.popLast() else { return }
+        switch last {
+        case .add(let annotation):
+            detach(annotation)
+        case .delete(let page, let annotation):
+            page.addAnnotation(annotation)
+            added.append((page, annotation))
+            select(annotation)
+            view?.refresh(page)
+        case .move(let annotation, let old):
+            annotation.bounds = old
+            if let page = annotation.page { view?.refresh(page) }
+        }
+        objectWillChange.send()
+    }
 
     /// Unterschrift in der Breite des gewählten Elements ändern.
     func resizeSelected(by factor: CGFloat) {
         guard let sig = selected as? SignatureAnnotation else { return }
         let b = sig.bounds, w = b.width * factor, h = b.height * factor
         sig.bounds = CGRect(x: b.midX - w / 2, y: b.midY - h / 2, width: w, height: h)
+        recordChange(of: sig, from: b)
+        if let page = sig.page { view?.refresh(page) }
     }
 
     func save() -> URL? {
@@ -130,6 +173,7 @@ final class EditorPDFView: PDFView {
     private var livePage: PDFPage?
     private var origin = CGPoint.zero
     private var moving: PDFAnnotation?
+    private var movingStart = CGRect.zero
     private var grab = CGPoint.zero
 
     override var acceptsFirstResponder: Bool { true }
@@ -144,7 +188,13 @@ final class EditorPDFView: PDFView {
         page.annotations.last { ($0 is RedactAnnotation || $0 is SignatureAnnotation) && $0.bounds.insetBy(dx: -3, dy: -3).contains(point) }
     }
 
-    private func redraw(_ page: PDFPage) { setNeedsDisplay(convert(page.bounds(for: displayBox), from: page)) }
+    private func redraw(_ page: PDFPage) { refresh(page) }
+
+    /// Seite neu zeichnen, auch wenn PDFKit sie zwischengespeichert hat.
+    func refresh(_ page: PDFPage) {
+        annotationsChanged(on: page)
+        setNeedsDisplay(convert(page.bounds(for: displayBox), from: page))
+    }
 
     override func mouseDown(with event: NSEvent) {
         guard let model, let (page, point) = pagePoint(event) else { return super.mouseDown(with: event) }
@@ -153,6 +203,7 @@ final class EditorPDFView: PDFView {
         if let hit = ours(page, point) {
             model.select(hit)
             moving = hit
+            movingStart = hit.bounds
             grab = CGPoint(x: point.x - hit.bounds.minX, y: point.y - hit.bounds.minY)
             redraw(page)
             return
@@ -183,6 +234,7 @@ final class EditorPDFView: PDFView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if let moving { model?.recordChange(of: moving, from: movingStart) }
         moving = nil
         if let live, let livePage {
             if live.bounds.width < 6 || live.bounds.height < 6 { livePage.removeAnnotation(live) }
@@ -197,6 +249,8 @@ final class EditorPDFView: PDFView {
         if [51, 117].contains(event.keyCode), let selected = model?.selected, let page = selected.page {
             model?.remove(selected)
             redraw(page)
+        } else if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "z" {
+            model?.undo()
         } else { super.keyDown(with: event) }
     }
 
@@ -225,6 +279,7 @@ struct PDFViewHost: NSViewRepresentable {
     func makeNSView(context: Context) -> EditorPDFView {
         let view = EditorPDFView()
         view.model = model
+        model.view = view
         view.document = model.document
         view.autoScales = true
         view.displayMode = .singlePageContinuous
@@ -297,7 +352,7 @@ struct PDFEditView: View {
                 .buttonStyle(.plain).disabled(!(model.selected is SignatureAnnotation)).help("Smaller signature")
             Spacer()
             Button { model.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
-                .buttonStyle(.plain).disabled(model.editCount == 0).opacity(model.editCount == 0 ? 0.4 : 1)
+                .buttonStyle(.plain).disabled(!model.canUndo).opacity(model.canUndo ? 1 : 0.4)
         }
     }
 
